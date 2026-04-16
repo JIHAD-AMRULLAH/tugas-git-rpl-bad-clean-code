@@ -1,30 +1,96 @@
 <?php
-// login.php
 session_start();
 require 'config.php';
+
 $conn = db_connect();
 
+// ================== CONSTANT ==================
+define('ROLE_ADMIN', 'admin');
+define('ROLE_USER', 'user');
+
+// ================== FUNCTIONS ==================
+
+/**
+ * Validasi input login
+ */
+function validateLoginInput($username, $password) {
+    $errors = [];
+
+    if (empty($username) || empty($password)) {
+        $errors[] = 'Semua field wajib diisi';
+    }
+
+    return $errors;
+}
+
+/**
+ * Ambil user dari database berdasarkan username
+ */
+function fetchUserByUsername($conn, $username) {
+    $query = "SELECT id, password, role FROM users WHERE username = ? LIMIT 1";
+
+    $statement = $conn->prepare($query);
+    $statement->bind_param("s", $username);
+    $statement->execute();
+
+    return $statement->get_result()->fetch_assoc();
+}
+
+/**
+ * Verifikasi password user
+ */
+function verifyUserPassword($inputPassword, $hashedPassword) {
+    return password_verify($inputPassword, $hashedPassword);
+}
+
+/**
+ * Set session sesuai role user
+ */
+function createUserSession($user) {
+    if ($user['role'] === ROLE_ADMIN) {
+        $_SESSION['admin_id'] = $user['id'];
+        $_SESSION['role'] = ROLE_ADMIN;
+    } else {
+        $_SESSION['user_id'] = $user['id'];
+        $_SESSION['role'] = ROLE_USER;
+    }
+}
+
+/**
+ * Redirect ke halaman utama
+ */
+function redirectToHome() {
+    header('Location: index.php');
+    exit;
+}
+
+
+// ================== MAIN PROCESS ==================
+
 $errors = [];
-if($_SERVER['REQUEST_METHOD'] === 'POST'){
-    $username = trim($_POST['username']);
-    $password = $_POST['password'];
-    if($username===''||$password==='') $errors[]='Semua field wajib diisi';
-    if(empty($errors)){
-        $stmt = $conn->prepare("SELECT id,password,role FROM users WHERE username = ? LIMIT 1");
-        $stmt->bind_param("s",$username);
-        $stmt->execute();
-        $res = $stmt->get_result()->fetch_assoc();
-        if($res && password_verify($password, $res['password'])){
-            if($res['role'] === 'admin'){
-                // original behavior was admin login; but per request we remove admin login link.
-                // Still allow login if admin account exists.
-                $_SESSION['admin_id'] = $res['id'];
-                $_SESSION['role'] = 'admin';
-            } else {
-                $_SESSION['user_id'] = $res['id'];
-                $_SESSION['role'] = 'user';
-            }
-            header('Location: index.php'); exit;
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+
+    $username = trim($_POST['username'] ?? '');
+    $password = $_POST['password'] ?? '';
+
+    // 1. Validasi input
+    $errors = validateLoginInput($username, $password);
+
+    if (empty($errors)) {
+
+        // 2. Ambil data user
+        $user = fetchUserByUsername($conn, $username);
+
+        // 3. Cek user & password
+        if ($user && verifyUserPassword($password, $user['password'])) {
+
+            // 4. Set session
+            createUserSession($user);
+
+            // 5. Redirect
+            redirectToHome();
+
         } else {
             $errors[] = 'Username atau password salah';
         }
